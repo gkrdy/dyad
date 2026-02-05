@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 
 import { Label } from "@/components/ui/label";
 
-import { IpcClient } from "@/ipc/ipc_client";
+import { ipc, type SupabaseProject } from "@/ipc/types";
 import { toast } from "sonner";
 import { useSettings } from "@/hooks/useSettings";
 import { useSupabase } from "@/hooks/useSupabase";
@@ -37,9 +37,8 @@ import connectSupabaseDark from "../../assets/supabase/connect-supabase-dark.svg
 // @ts-ignore
 import connectSupabaseLight from "../../assets/supabase/connect-supabase-light.svg";
 
-import { ExternalLink, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
-import type { SupabaseProject } from "@/ipc/ipc_types";
 import { isSupabaseConnected } from "@/lib/schemas";
 
 export function SupabaseConnector({ appId }: { appId: number }) {
@@ -132,12 +131,12 @@ export function SupabaseConnector({ appId }: { appId: number }) {
 
   const handleAddAccount = async () => {
     if (settings?.isTestMode) {
-      await IpcClient.getInstance().fakeHandleSupabaseConnect({
+      await ipc.supabase.fakeConnectAndSetProject({
         appId,
         fakeProjectId: "fake-project-id",
       });
     } else {
-      await IpcClient.getInstance().openExternalUrl(
+      await ipc.system.openExternalUrl(
         "https://supabase-oauth.dyad.sh/api/connect-supabase/login",
       );
     }
@@ -173,7 +172,7 @@ export function SupabaseConnector({ appId }: { appId: number }) {
             <Button
               variant="outline"
               onClick={() => {
-                IpcClient.getInstance().openExternalUrl(
+                ipc.system.openExternalUrl(
                   `https://supabase.com/dashboard/project/${app.supabaseProjectId}`,
                 );
               }}
@@ -272,15 +271,28 @@ export function SupabaseConnector({ appId }: { appId: number }) {
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             Supabase Projects
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleAddAccount}
-              className="gap-1"
-            >
-              <Plus className="h-4 w-4" />
-              Add Organization
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => refetchProjects()}
+                disabled={isFetchingProjects}
+                title="Refresh projects"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${isFetchingProjects ? "animate-spin" : ""}`}
+                />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddAccount}
+                className="gap-1"
+              >
+                <Plus className="h-4 w-4" />
+                Add Organization
+              </Button>
+            </div>
           </CardTitle>
           <CardDescription>
             Select a Supabase project to connect to this app

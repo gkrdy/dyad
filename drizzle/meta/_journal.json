@@ -152,8 +152,22 @@
     {
       "idx": 21,
       "version": "6",
-      "when": 1767129171354,
-      "tag": "0021_same_george_stacy",
+      "when": 1768167214574,
+      "tag": "0021_kind_luckman",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1768924462154,
+      "tag": "0022_loving_wendigo",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1769188144685,
+      "tag": "0023_pale_red_hulk",
       "breakpoints": true
     }
   ]

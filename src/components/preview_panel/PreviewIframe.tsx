@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { CopyErrorMessage } from "@/components/CopyErrorMessage";
-import { IpcClient } from "@/ipc/ipc_client";
+import { ipc } from "@/ipc/types";
 
 import { useParseRouter } from "@/hooks/useParseRouter";
 import {
@@ -46,7 +46,7 @@ import {
   screenshotDataUrlAtom,
   pendingVisualChangesAtom,
 } from "@/atoms/previewAtoms";
-import { ComponentSelection } from "@/ipc/ipc_types";
+import { ComponentSelection } from "@/ipc/types";
 import {
   Tooltip,
   TooltipContent,
@@ -60,10 +60,12 @@ import {
 } from "@/components/ui/popover";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useRunApp } from "@/hooks/useRunApp";
+import { useSettings } from "@/hooks/useSettings";
 import { useShortcut } from "@/hooks/useShortcut";
 import { cn } from "@/lib/utils";
 import { normalizePath } from "../../../shared/normalizePath";
 import { showError } from "@/lib/toast";
+import type { DeviceMode } from "@/lib/schemas";
 import { AnnotatorOnlyForPro } from "./AnnotatorOnlyForPro";
 import { useAttachments } from "@/hooks/useAttachments";
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
@@ -124,10 +126,9 @@ const ErrorBanner = ({ error, onDismiss, onAIFix }: ErrorBannerProps) => {
         >
           <ChevronRight
             size={14}
-            className={`mt-0.5 transform transition-transform ${
-              isCollapsed ? "" : "rotate-90"
-            }`}
+            className={`mt-0.5 transform transition-transform ${isCollapsed ? "" : "rotate-90"}`}
           />
+
           {isCollapsed ? getTruncatedError() : error.message}
         </div>
       </div>
@@ -179,6 +180,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
   const { streamMessage } = useStreamChat();
   const { routes: availableRoutes } = useParseRouter(selectedAppId);
   const { restartApp } = useRunApp();
+  const { settings, updateSettings } = useSettings();
   const { userBudget } = useUserBudgetInfo();
   const isProMode = !!userBudget;
 
@@ -213,8 +215,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
   const [hasStaticText, setHasStaticText] = useState(false);
 
   // Device mode state
-  type DeviceMode = "desktop" | "tablet" | "mobile";
-  const [deviceMode, setDeviceMode] = useState<DeviceMode>("desktop");
+  const deviceMode: DeviceMode = settings?.previewDeviceMode ?? "desktop";
   const [isDevicePopoverOpen, setIsDevicePopoverOpen] = useState(false);
 
   // Device configurations
@@ -230,7 +231,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
     if (!componentId || !selectedAppId) return;
 
     try {
-      const result = await IpcClient.getInstance().analyzeComponent({
+      const result = await ipc.visualEditing.analyzeComponent({
         appId: selectedAppId,
         componentId,
       });
@@ -350,18 +351,21 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
       if (event.data?.type === "console-log") {
         const { level, args } = event.data;
         const formattedMessage = `[${level.toUpperCase()}] ${args.join(" ")}`;
-        const logLevel =
+        const logLevel: "info" | "warn" | "error" =
           level === "error" ? "error" : level === "warn" ? "warn" : "info";
-        setConsoleEntries((prev) => [
-          ...prev,
-          {
-            level: logLevel,
-            type: "client",
-            message: formattedMessage,
-            timestamp: Date.now(),
-            appId: selectedAppId!,
-          },
-        ]);
+        const logEntry = {
+          level: logLevel,
+          type: "client" as const,
+          message: formattedMessage,
+          appId: selectedAppId!,
+          timestamp: Date.now(),
+        };
+
+        // Send to central log store
+        ipc.misc.addLog(logEntry);
+
+        // Also update UI state
+        setConsoleEntries((prev) => [...prev, logEntry]);
         return;
       }
 
@@ -369,16 +373,19 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
       if (event.data?.type === "network-request") {
         const { method, url } = event.data;
         const formattedMessage = `→ ${method} ${url}`;
-        setConsoleEntries((prev) => [
-          ...prev,
-          {
-            level: "info",
-            type: "network-requests",
-            message: formattedMessage,
-            timestamp: Date.now(),
-            appId: selectedAppId!,
-          },
-        ]);
+        const logEntry = {
+          level: "info" as const,
+          type: "network-requests" as const,
+          message: formattedMessage,
+          appId: selectedAppId!,
+          timestamp: Date.now(),
+        };
+
+        // Send to central log store
+        ipc.misc.addLog(logEntry);
+
+        // Also update UI state
+        setConsoleEntries((prev) => [...prev, logEntry]);
         return;
       }
 
@@ -386,17 +393,21 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
       if (event.data?.type === "network-response") {
         const { method, url, status, duration } = event.data;
         const formattedMessage = `[${status}] ${method} ${url} (${duration}ms)`;
-        const level = status >= 400 ? "error" : status >= 300 ? "warn" : "info";
-        setConsoleEntries((prev) => [
-          ...prev,
-          {
-            level,
-            type: "network-requests",
-            message: formattedMessage,
-            timestamp: Date.now(),
-            appId: selectedAppId!,
-          },
-        ]);
+        const level: "info" | "warn" | "error" =
+          status >= 400 ? "error" : status >= 300 ? "warn" : "info";
+        const logEntry = {
+          level,
+          type: "network-requests" as const,
+          message: formattedMessage,
+          appId: selectedAppId!,
+          timestamp: Date.now(),
+        };
+
+        // Send to central log store
+        ipc.misc.addLog(logEntry);
+
+        // Also update UI state
+        setConsoleEntries((prev) => [...prev, logEntry]);
         return;
       }
 
@@ -405,16 +416,19 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
         const { method, url, status, error, duration } = event.data;
         const statusCode = status && status !== 0 ? `[${status}] ` : "";
         const formattedMessage = `${statusCode}${method} ${url} - ${error} (${duration}ms)`;
-        setConsoleEntries((prev) => [
-          ...prev,
-          {
-            level: "error",
-            type: "network-requests",
-            message: formattedMessage,
-            timestamp: Date.now(),
-            appId: selectedAppId!,
-          },
-        ]);
+        const logEntry = {
+          level: "error" as const,
+          type: "network-requests" as const,
+          message: formattedMessage,
+          appId: selectedAppId!,
+          timestamp: Date.now(),
+        };
+
+        // Send to central log store
+        ipc.misc.addLog(logEntry);
+
+        // Also update UI state
+        setConsoleEntries((prev) => [...prev, logEntry]);
         return;
       }
 
@@ -547,35 +561,39 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
           type === "iframe-sourcemapped-error"
             ? payload?.stack?.split("\n").slice(0, 1).join("\n")
             : payload?.stack;
-        const errorMessage = `Error ${
-          payload?.message || payload?.reason
-        }\nStack trace: ${stack}`;
+        const errorMessage = `Error ${payload?.message || payload?.reason}\nStack trace: ${stack}`;
         console.error("Iframe error:", errorMessage);
         setErrorMessage({ message: errorMessage, source: "preview-app" });
-        setConsoleEntries((prev) => [
-          ...prev,
-          {
-            level: "error",
-            type: "client",
-            message: `Iframe error: ${errorMessage}`,
-            timestamp: Date.now(),
-            appId: selectedAppId!,
-          },
-        ]);
+        const logEntry = {
+          level: "error" as const,
+          type: "client" as const,
+          message: `Iframe error: ${errorMessage}`,
+          appId: selectedAppId!,
+          timestamp: Date.now(),
+        };
+
+        // Send to central log store
+        ipc.misc.addLog(logEntry);
+
+        // Also update UI state
+        setConsoleEntries((prev) => [...prev, logEntry]);
       } else if (type === "build-error-report") {
         console.debug(`Build error report: ${payload}`);
         const errorMessage = `${payload?.message} from file ${payload?.file}.\n\nSource code:\n${payload?.frame}`;
         setErrorMessage({ message: errorMessage, source: "preview-app" });
-        setConsoleEntries((prev) => [
-          ...prev,
-          {
-            level: "error",
-            type: "client",
-            message: `Build error report: ${JSON.stringify(payload)}`,
-            timestamp: Date.now(),
-            appId: selectedAppId!,
-          },
-        ]);
+        const logEntry = {
+          level: "error" as const,
+          type: "client" as const,
+          message: `Build error report: ${JSON.stringify(payload)}`,
+          appId: selectedAppId!,
+          timestamp: Date.now(),
+        };
+
+        // Send to central log store
+        ipc.misc.addLog(logEntry);
+
+        // Also update UI state
+        setConsoleEntries((prev) => [...prev, logEntry]);
       } else if (type === "pushState" || type === "replaceState") {
         console.debug(`Navigation event: ${type}`, payload);
 
@@ -932,7 +950,7 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
               data-testid="preview-open-browser-button"
               onClick={() => {
                 if (originalUrl) {
-                  IpcClient.getInstance().openExternalUrl(originalUrl);
+                  ipc.system.openExternalUrl(originalUrl);
                 }
               }}
               className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed dark:text-gray-300"
@@ -947,7 +965,8 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
                   data-testid="device-mode-button"
                   onClick={() => {
                     // Toggle popover open/close
-                    if (isDevicePopoverOpen) setDeviceMode("desktop");
+                    if (isDevicePopoverOpen)
+                      updateSettings({ previewDeviceMode: "desktop" });
                     setIsDevicePopoverOpen(!isDevicePopoverOpen);
                   }}
                   className={cn(
@@ -970,13 +989,15 @@ export const PreviewIframe = ({ loading }: { loading: boolean }) => {
                     value={deviceMode}
                     onValueChange={(value) => {
                       if (value) {
-                        setDeviceMode(value as DeviceMode);
+                        updateSettings({
+                          previewDeviceMode: value as DeviceMode,
+                        });
                         setIsDevicePopoverOpen(false);
                       }
                     }}
                     variant="outline"
                   >
-                    {/* Tooltips placed inside items instead of wrapping 
+                    {/* Tooltips placed inside items instead of wrapping
                     to avoid asChild prop merging that breaks highlighting */}
                     <ToggleGroupItem value="desktop" aria-label="Desktop view">
                       <Tooltip>

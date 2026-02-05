@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import { ProviderSettingsGrid } from "@/components/ProviderSettings";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
-import { IpcClient } from "@/ipc/ipc_client";
+import { ipc } from "@/ipc/types";
 import { showSuccess, showError } from "@/lib/toast";
 import { AutoApproveSwitch } from "@/components/AutoApproveSwitch";
 import { TelemetrySwitch } from "@/components/TelemetrySwitch";
@@ -28,6 +28,7 @@ import { NodePathSelector } from "@/components/NodePathSelector";
 import { ToolsMcpSettings } from "@/components/settings/ToolsMcpSettings";
 import { AgentToolsSettings } from "@/components/settings/AgentToolsSettings";
 import { ZoomSelector } from "@/components/ZoomSelector";
+import { DefaultChatModeSelector } from "@/components/DefaultChatModeSelector";
 import { useSetAtom } from "jotai";
 import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
 
@@ -46,8 +47,7 @@ export default function SettingsPage() {
   const handleResetEverything = async () => {
     setIsResetting(true);
     try {
-      const ipcClient = IpcClient.getInstance();
-      await ipcClient.resetAll();
+      await ipc.system.resetAll();
       showSuccess("Successfully reset everything. Restart the application.");
     } catch (error) {
       console.error("Error resetting:", error);
@@ -131,17 +131,16 @@ export default function SettingsPage() {
           </div>
 
           {/* Agent v2 Permissions */}
-          {settings?.experiments?.enableLocalAgent && (
-            <div
-              id="agent-permissions"
-              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6"
-            >
-              <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                Agent Permissions
-              </h2>
-              <AgentToolsSettings />
-            </div>
-          )}
+
+          <div
+            id="agent-permissions"
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6"
+          >
+            <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
+              Agent Permissions (Pro)
+            </h2>
+            <AgentToolsSettings />
+          </div>
 
           {/* Tools (MCP) */}
           <div
@@ -179,27 +178,6 @@ export default function SettingsPage() {
                 <div className="text-sm text-gray-500 dark:text-gray-400">
                   This doesn't require any external Git installation and offers
                   a faster, native-Git performance experience.
-                </div>
-              </div>
-              <div className="space-y-1 mt-4">
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="enable-local-agent"
-                    checked={!!settings?.experiments?.enableLocalAgent}
-                    onCheckedChange={(checked) => {
-                      updateSettings({
-                        experiments: {
-                          ...settings?.experiments,
-                          enableLocalAgent: checked,
-                        },
-                      });
-                    }}
-                  />
-                  <Label htmlFor="enable-local-agent">Enable Agent v2</Label>
-                </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  Enables the local agent with enhanced capabilities and tool
-                  permissions.
                 </div>
               </div>
             </div>
@@ -334,7 +312,11 @@ export function WorkflowSettings() {
         Workflow Settings
       </h2>
 
-      <div className="space-y-1">
+      <div className="mt-4">
+        <DefaultChatModeSelector />
+      </div>
+
+      <div className="space-y-1 mt-4">
         <AutoApproveSwitch showToast={false} />
         <div className="text-sm text-gray-500 dark:text-gray-400">
           This will automatically approve code changes and run them.

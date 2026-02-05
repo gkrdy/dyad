@@ -1,6 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { atom } from "jotai";
-import { IpcClient } from "@/ipc/ipc_client";
+import { ipc, type AppOutput } from "@/ipc/types";
 import {
   appConsoleEntriesAtom,
   appUrlAtom,
@@ -10,7 +10,6 @@ import {
   selectedAppIdAtom,
 } from "@/atoms/appAtoms";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { AppOutput } from "@/ipc/ipc_types";
 import { showInputRequest } from "@/lib/toast";
 
 const useRunAppLoadingAtom = atom(false);
@@ -47,14 +46,17 @@ export function useRunApp() {
     }
   };
 
+  const onHotModuleReload = useCallback(() => {
+    setPreviewPanelKey((prevKey) => prevKey + 1);
+  }, [setPreviewPanelKey]);
+
   const processAppOutput = useCallback(
     (output: AppOutput) => {
       // Handle input requests specially
       if (output.type === "input-requested") {
         showInputRequest(output.message, async (response) => {
           try {
-            const ipcClient = IpcClient.getInstance();
-            await ipcClient.respondToAppInput({
+            await ipc.app.respondToAppInput({
               appId: output.appId,
               response,
             });
@@ -66,71 +68,97 @@ export function useRunApp() {
       }
 
       // Add to console entries
-      const level =
-        output.type === "stderr" || output.type === "client-error"
-          ? "error"
-          : "info";
-      setConsoleEntries((prev) => [
-        ...prev,
-        {
-          level,
-          type: "build-time",
-          message: output.message,
-          timestamp: output.timestamp,
-          appId: output.appId,
-        },
-      ]);
+      // Use "server" type for stdout/stderr to match the backend log store
+      // (app_handlers.ts stores these as type: "server")
+      const logEntry = {
+        level:
+          output.type === "stderr" || output.type === "client-error"
+            ? ("error" as const)
+            : ("info" as const),
+        type: "server" as const,
+        message: output.message,
+        appId: output.appId,
+        timestamp: output.timestamp ?? Date.now(),
+      };
+
+      // Only send client-error logs to central store
+      // Server logs (stdout/stderr) are already stored in the main process
+      if (output.type === "client-error") {
+        ipc.misc.addLog(logEntry);
+      }
+
+      // Also update UI state
+      setConsoleEntries((prev) => [...prev, logEntry]);
 
       // Process proxy server output
       processProxyServerOutput(output);
     },
     [setConsoleEntries],
   );
-  const runApp = useCallback(
-    async (appId: number) => {
-      setLoading(true);
-      try {
-        const ipcClient = IpcClient.getInstance();
-        console.debug("Running app", appId);
 
-        // Clear the URL and add restart message
-        setAppUrlObj((prevAppUrlObj) => {
-          if (prevAppUrlObj?.appId !== appId) {
-            return { appUrl: null, appId: null, originalUrl: null };
-          }
-          return prevAppUrlObj; // No change needed
-        });
-
-        setConsoleEntries((prev) => [
-          ...prev,
-          {
-            level: "info",
-            type: "build-time",
-            message: "Trying to restart app...",
-            timestamp: Date.now(),
-            appId,
-          },
-        ]);
-        const app = await ipcClient.getApp(appId);
-        setApp(app);
-        await ipcClient.runApp(appId, processAppOutput);
-        setPreviewErrorMessage(undefined);
-      } catch (error) {
-        console.error(`Error running app ${appId}:`, error);
-        setPreviewErrorMessage(
-          error instanceof Error
-            ? { message: error.message, source: "dyad-app" }
-            : {
-                message: error?.toString() || "Unknown error",
-                source: "dyad-app",
-              },
-        );
-      } finally {
-        setLoading(false);
+  // Subscribe to app output events from main process
+  useEffect(() => {
+    const unsubscribe = ipc.events.misc.onAppOutput((output) => {
+      // Only process events for the currently selected app
+      if (appId !== null && output.appId === appId) {
+        // Handle HMR updates
+        if (
+          output.message.includes("hmr update") &&
+          output.message.includes("[vite]")
+        ) {
+          onHotModuleReload();
+        }
+        processAppOutput(output);
       }
-    },
-    [processAppOutput],
-  );
+    });
+
+    return unsubscribe;
+  }, [appId, processAppOutput, onHotModuleReload]);
+
+  const runApp = useCallback(async (appId: number) => {
+    setLoading(true);
+    try {
+      console.debug("Running app", appId);
+
+      // Clear the URL and add restart message
+      setAppUrlObj((prevAppUrlObj) => {
+        if (prevAppUrlObj?.appId !== appId) {
+          return { appUrl: null, appId: null, originalUrl: null };
+        }
+        return prevAppUrlObj; // No change needed
+      });
+
+      const logEntry = {
+        level: "info" as const,
+        type: "server" as const,
+        message: "Trying to restart app...",
+        appId,
+        timestamp: Date.now(),
+      };
+
+      // Send to central log store
+      ipc.misc.addLog(logEntry);
+
+      // Also update UI state
+      setConsoleEntries((prev) => [...prev, logEntry]);
+      const app = await ipc.app.getApp(appId);
+      setApp(app);
+      await ipc.app.runApp({ appId });
+      setPreviewErrorMessage(undefined);
+    } catch (error) {
+      console.error(`Error running app ${appId}:`, error);
+      setPreviewErrorMessage(
+        error instanceof Error
+          ? { message: error.message, source: "dyad-app" }
+          : {
+              message: error?.toString() || "Unknown error",
+              source: "dyad-app",
+            },
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const stopApp = useCallback(async (appId: number) => {
     if (appId === null) {
@@ -139,8 +167,7 @@ export function useRunApp() {
 
     setLoading(true);
     try {
-      const ipcClient = IpcClient.getInstance();
-      await ipcClient.stopApp(appId);
+      await ipc.app.stopApp({ appId });
 
       setPreviewErrorMessage(undefined);
     } catch (error) {
@@ -158,10 +185,6 @@ export function useRunApp() {
     }
   }, []);
 
-  const onHotModuleReload = useCallback(() => {
-    setPreviewPanelKey((prevKey) => prevKey + 1);
-  }, [setPreviewPanelKey]);
-
   const restartApp = useCallback(
     async ({
       removeNodeModules = false,
@@ -171,7 +194,6 @@ export function useRunApp() {
       }
       setLoading(true);
       try {
-        const ipcClient = IpcClient.getInstance();
         console.debug(
           "Restarting app",
           appId,
@@ -180,34 +202,28 @@ export function useRunApp() {
 
         // Clear the URL and add restart message
         setAppUrlObj({ appUrl: null, appId: null, originalUrl: null });
-        setConsoleEntries((prev) => [
-          ...prev,
-          {
-            level: "info",
-            type: "build-time",
-            message: "Restarting app...",
-            timestamp: Date.now(),
-            appId,
-          },
-        ]);
 
-        const app = await ipcClient.getApp(appId);
+        // Clear logs in both the backend store and UI state
+        await ipc.misc.clearLogs({ appId });
+        setConsoleEntries([]);
+
+        const logEntry = {
+          level: "info" as const,
+          type: "server" as const,
+          message: "Restarting app...",
+          appId: appId!,
+          timestamp: Date.now(),
+        };
+
+        // Send to central log store
+        ipc.misc.addLog(logEntry);
+
+        // Also update UI state
+        setConsoleEntries((prev) => [...prev, logEntry]);
+
+        const app = await ipc.app.getApp(appId);
         setApp(app);
-        await ipcClient.restartApp(
-          appId,
-          (output) => {
-            // Handle HMR updates before processing
-            if (
-              output.message.includes("hmr update") &&
-              output.message.includes("[vite]")
-            ) {
-              onHotModuleReload();
-            }
-            // Process normally (including input requests)
-            processAppOutput(output);
-          },
-          removeNodeModules,
-        );
+        await ipc.app.restartApp({ appId, removeNodeModules });
       } catch (error) {
         console.error(`Error restarting app ${appId}:`, error);
         setPreviewErrorMessage(
@@ -223,15 +239,7 @@ export function useRunApp() {
         setLoading(false);
       }
     },
-    [
-      appId,
-      setApp,
-      setConsoleEntries,
-      setAppUrlObj,
-      setPreviewPanelKey,
-      processAppOutput,
-      onHotModuleReload,
-    ],
+    [appId, setApp, setConsoleEntries, setAppUrlObj, setPreviewPanelKey],
   );
 
   const refreshAppIframe = useCallback(async () => {

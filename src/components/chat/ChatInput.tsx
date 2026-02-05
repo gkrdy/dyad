@@ -14,7 +14,6 @@ import {
   Database,
   ChevronsUpDown,
   ChevronsDownUp,
-  ChartColumnIncreasing,
   SendHorizontalIcon,
   Lock,
 } from "lucide-react";
@@ -22,12 +21,13 @@ import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useSettings } from "@/hooks/useSettings";
-import { IpcClient } from "@/ipc/ipc_client";
+import { ipc } from "@/ipc/types";
 import {
   chatInputValueAtom,
   chatMessagesByIdAtom,
   selectedChatIdAtom,
   pendingAgentConsentsAtom,
+  agentTodosByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { atom, useAtom, useSetAtom, useAtomValue } from "jotai";
 import { useStreamChat } from "@/hooks/useStreamChat";
@@ -59,12 +59,12 @@ import { useVersions } from "@/hooks/useVersions";
 import { useAttachments } from "@/hooks/useAttachments";
 import { AttachmentsList } from "./AttachmentsList";
 import { DragDropOverlay } from "./DragDropOverlay";
-import { FileAttachmentDropdown } from "./FileAttachmentDropdown";
 import { showExtraFilesToast } from "@/lib/toast";
 import { useSummarizeInNewChat } from "./SummarizeInNewChatButton";
 import { ChatInputControls } from "../ChatInputControls";
 import { ChatErrorBox } from "./ChatErrorBox";
 import { AgentConsentBanner } from "./AgentConsentBanner";
+import { TodoList } from "./TodoList";
 import {
   selectedComponentsPreviewAtom,
   previewIframeRefAtom,
@@ -75,11 +75,12 @@ import {
 import { SelectedComponentsDisplay } from "./SelectedComponentDisplay";
 import { useCheckProblems } from "@/hooks/useCheckProblems";
 import { LexicalChatInput } from "./LexicalChatInput";
+import { AuxiliaryActionsMenu } from "./AuxiliaryActionsMenu";
 import { useChatModeToggle } from "@/hooks/useChatModeToggle";
 import { VisualEditingChangesDialog } from "@/components/preview_panel/VisualEditingChangesDialog";
 import { useUserBudgetInfo } from "@/hooks/useUserBudgetInfo";
 import { useQueryClient } from "@tanstack/react-query";
-import { TOKEN_COUNT_QUERY_KEY } from "@/hooks/useCountTokens";
+import { queryKeys } from "@/lib/queryKeys";
 
 const showTokenBarAtom = atom(false);
 
@@ -101,7 +102,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
   const queryClient = useQueryClient();
   const toggleShowTokenBar = useCallback(() => {
     setShowTokenBar((prev) => !prev);
-    queryClient.invalidateQueries({ queryKey: TOKEN_COUNT_QUERY_KEY });
+    queryClient.invalidateQueries({ queryKey: queryKeys.tokenCount.all });
   }, [setShowTokenBar, queryClient]);
   const [selectedComponents, setSelectedComponents] = useAtom(
     selectedComponentsPreviewAtom,
@@ -122,6 +123,10 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     (c) => c.chatId === chatId,
   );
   const pendingAgentConsent = consentsForThisChat[0] ?? null;
+
+  // Get todos for this chat
+  const agentTodosByChatId = useAtomValue(agentTodosByChatIdAtom);
+  const chatTodos = chatId ? (agentTodosByChatId.get(chatId) ?? []) : [];
   const { checkProblems } = useCheckProblems(appId);
   const { refreshAppIframe } = useRunApp();
   // Use the attachments hook
@@ -168,7 +173,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     if (!chatId) {
       return;
     }
-    const chat = await IpcClient.getInstance().getChat(chatId);
+    const chat = await ipc.chat.getChat(chatId);
     setMessagesById((prev) => {
       const next = new Map(prev);
       next.set(chatId, chat.messages);
@@ -212,12 +217,12 @@ export function ChatInput({ chatId }: { chatId?: number }) {
       selectedComponents: componentsToSend,
     });
     clearAttachments();
-    posthog.capture("chat:submit");
+    posthog.capture("chat:submit", { chatMode: settings?.selectedChatMode });
   };
 
   const handleCancel = () => {
     if (chatId) {
-      IpcClient.getInstance().cancelChatStream(chatId);
+      ipc.chat.cancelStream(chatId);
     }
     setIsStreaming(false);
   };
@@ -235,7 +240,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     setIsApproving(true);
     posthog.capture("chat:approve");
     try {
-      const result = await IpcClient.getInstance().approveProposal({
+      const result = await ipc.proposal.approveProposal({
         chatId,
         messageId,
       });
@@ -272,7 +277,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
     setIsRejecting(true);
     posthog.capture("chat:reject");
     try {
-      await IpcClient.getInstance().rejectProposal({
+      await ipc.proposal.rejectProposal({
         chatId,
         messageId,
       });
@@ -320,13 +325,15 @@ export function ChatInput({ chatId }: { chatId?: number }) {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+          {/* Show todo list if there are todos for this chat */}
+          {chatTodos.length > 0 && <TodoList todos={chatTodos} />}
           {/* Show agent consent banner if there's a pending consent request */}
           {pendingAgentConsent && (
             <AgentConsentBanner
               consent={pendingAgentConsent}
               queueTotal={consentsForThisChat.length}
               onDecision={(decision) => {
-                IpcClient.getInstance().respondToAgentConsentRequest({
+                ipc.agent.respondToConsent({
                   requestId: pendingAgentConsent.requestId,
                   decision,
                 });
@@ -338,7 +345,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
                 );
               }}
               onClose={() => {
-                IpcClient.getInstance().respondToAgentConsentRequest({
+                ipc.agent.respondToConsent({
                   requestId: pendingAgentConsent.requestId,
                   decision: "decline",
                 });
@@ -406,9 +413,7 @@ export function ChatInput({ chatId }: { chatId?: number }) {
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => {
-                          IpcClient.getInstance().openExternalUrl(
-                            "https://dyad.sh/pro",
-                          );
+                          ipc.system.openExternalUrl("https://dyad.sh/pro");
                         }}
                         className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors cursor-pointer"
                       >
@@ -472,34 +477,15 @@ export function ChatInput({ chatId }: { chatId?: number }) {
           </div>
           <div className="pl-2 pr-1 flex items-center justify-between pb-2">
             <div className="flex items-center">
-              <ChatInputControls showContextFilesPicker={true} />
-              {/* File attachment dropdown */}
-              <FileAttachmentDropdown
-                onFileSelect={handleFileSelect}
-                disabled={isStreaming}
-              />
+              <ChatInputControls showContextFilesPicker={false} />
             </div>
 
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={toggleShowTokenBar}
-                    variant="ghost"
-                    className={`has-[>svg]:px-2 ${
-                      showTokenBar ? "text-purple-500 bg-purple-100" : ""
-                    }`}
-                    size="sm"
-                    data-testid="token-bar-toggle"
-                  >
-                    <ChartColumnIncreasing size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {showTokenBar ? "Hide token usage" : "Show token usage"}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <AuxiliaryActionsMenu
+              onFileSelect={handleFileSelect}
+              showTokenBar={showTokenBar}
+              toggleShowTokenBar={toggleShowTokenBar}
+              appId={appId ?? undefined}
+            />
           </div>
           {/* TokenBar is only displayed when showTokenBar is true */}
           {showTokenBar && <TokenBar chatId={chatId} />}
@@ -885,7 +871,7 @@ function ChatInputActions({
                       key={index}
                       className="flex items-center space-x-2"
                       onClick={() => {
-                        IpcClient.getInstance().openExternalUrl(
+                        ipc.system.openExternalUrl(
                           `https://www.npmjs.com/package/${pkg}`,
                         );
                       }}
@@ -997,25 +983,19 @@ function ProposalSummary({
 
   if (sqlQueries.length) {
     parts.push(
-      `${sqlQueries.length} SQL ${
-        sqlQueries.length === 1 ? "query" : "queries"
-      }`,
+      `${sqlQueries.length} SQL ${sqlQueries.length === 1 ? "query" : "queries"}`,
     );
   }
 
   if (serverFunctions.length) {
     parts.push(
-      `${serverFunctions.length} Server ${
-        serverFunctions.length === 1 ? "Function" : "Functions"
-      }`,
+      `${serverFunctions.length} Server ${serverFunctions.length === 1 ? "Function" : "Functions"}`,
     );
   }
 
   if (packagesAdded.length) {
     parts.push(
-      `${packagesAdded.length} ${
-        packagesAdded.length === 1 ? "package" : "packages"
-      }`,
+      `${packagesAdded.length} ${packagesAdded.length === 1 ? "package" : "packages"}`,
     );
   }
 

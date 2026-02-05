@@ -16,7 +16,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
-import { IpcClient } from "@/ipc/ipc_client";
+import { ipc } from "@/ipc/types";
 import { useRouter } from "@tanstack/react-router";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useChats } from "@/hooks/useChats";
@@ -28,6 +28,7 @@ import { useCheckoutVersion } from "@/hooks/useCheckoutVersion";
 import { useRenameBranch } from "@/hooks/useRenameBranch";
 import { isAnyCheckoutVersionInProgressAtom } from "@/store/appAtoms";
 import { LoadingBar } from "../ui/LoadingBar";
+import { UncommittedFilesBanner } from "./UncommittedFilesBanner";
 
 interface ChatHeaderProps {
   isVersionPaneOpen: boolean;
@@ -83,7 +84,7 @@ export function ChatHeader({
   const handleNewChat = async () => {
     if (appId) {
       try {
-        const chatId = await IpcClient.getInstance().createChat(appId);
+        const chatId = await ipc.chat.createChat(appId);
         setSelectedChatId(chatId);
         navigate({
           to: "/chat",
@@ -176,6 +177,12 @@ export function ChatHeader({
             </Button>
           )}
         </div>
+      )}
+
+      {/* Show uncommitted files banner when on a branch and there are uncommitted changes */}
+      {/* Hide while streaming to avoid distracting the user */}
+      {!isVersionPaneOpen && branchInfo?.branch && !isStreaming && (
+        <UncommittedFilesBanner appId={appId} />
       )}
 
       {/* Why is this pt-0.5? Because the loading bar is h-1 (it always takes space) and we want the vertical spacing to be consistent.*/}

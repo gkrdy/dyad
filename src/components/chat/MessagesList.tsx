@@ -1,5 +1,5 @@
 import React from "react";
-import type { Message } from "@/ipc/ipc_types";
+import type { Message } from "@/ipc/types";
 import { forwardRef, useState, useCallback, useMemo } from "react";
 import { Virtuoso } from "react-virtuoso";
 import ChatMessage from "./ChatMessage";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useVersions } from "@/hooks/useVersions";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { showError, showWarning } from "@/lib/toast";
-import { IpcClient } from "@/ipc/ipc_client";
+import { ipc } from "@/ipc/types";
 import { chatMessagesByIdAtom } from "@/atoms/chatAtoms";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { useSettings } from "@/hooks/useSettings";
@@ -25,6 +25,9 @@ import { useCountTokens } from "@/hooks/useCountTokens";
 interface MessagesListProps {
   messages: Message[];
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  onScrollerRef?: (ref: HTMLElement | Window | null) => void | (() => void);
+  distanceFromBottomRef?: React.MutableRefObject<number>;
+  isUserScrolling?: boolean;
 }
 
 // Memoize ChatMessage at module level to prevent recreation on every render
@@ -118,8 +121,7 @@ function FooterComponent({ context }: { context?: FooterContext }) {
                             }
                           : undefined,
                       });
-                      const chat =
-                        await IpcClient.getInstance().getChat(selectedChatId);
+                      const chat = await ipc.chat.getChat(selectedChatId);
                       setMessagesById((prev) => {
                         const next = new Map(prev);
                         next.set(selectedChatId, chat.messages);
@@ -179,8 +181,7 @@ function FooterComponent({ context }: { context?: FooterContext }) {
                       });
                       shouldRedo = false;
                     } else {
-                      const chat =
-                        await IpcClient.getInstance().getChat(selectedChatId);
+                      const chat = await ipc.chat.getChat(selectedChatId);
                       if (chat.initialCommitHash) {
                         console.debug(
                           "Reverting to initial commit hash",
@@ -248,7 +249,16 @@ function FooterComponent({ context }: { context?: FooterContext }) {
 }
 
 export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
-  function MessagesList({ messages, messagesEndRef }, ref) {
+  function MessagesList(
+    {
+      messages,
+      messagesEndRef,
+      onScrollerRef,
+      distanceFromBottomRef,
+      isUserScrolling,
+    },
+    ref,
+  ) {
     const appId = useAtomValue(selectedAppIdAtom);
     const { versions, revertVersion } = useVersions(appId);
     const { streamMessage, isStreaming } = useStreamChat();
@@ -414,7 +424,7 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
 
     return (
       <div
-        className="absolute inset-0 p-4"
+        className="absolute inset-0 overflow-y-auto p-4"
         ref={ref}
         data-testid="messages-list"
       >
@@ -422,10 +432,18 @@ export const MessagesList = forwardRef<HTMLDivElement, MessagesListProps>(
           data={messages}
           increaseViewportBy={{ top: 1000, bottom: 500 }}
           initialTopMostItemIndex={messages.length - 1}
-          followOutput="smooth"
           itemContent={itemContent}
           components={{ Footer: FooterComponent }}
           context={footerContext}
+          scrollerRef={onScrollerRef}
+          followOutput={() => {
+            const shouldAutoScroll =
+              !isUserScrolling &&
+              isStreaming &&
+              distanceFromBottomRef &&
+              distanceFromBottomRef.current <= 280;
+            return shouldAutoScroll ? "auto" : false;
+          }}
         />
       </div>
     );

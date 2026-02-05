@@ -17,7 +17,9 @@ testSkipIfWindows(
     const iframe = po.getPreviewIframeElement();
     await expect(
       iframe.contentFrame().getByText("Console Logs Test App"),
-    ).toBeVisible({ timeout: Timeout.MEDIUM });
+    ).toBeVisible({
+      timeout: Timeout.MEDIUM,
+    });
 
     // Open the system messages console
     // Logs are generated in useEffect when component mounts, so they may already exist
@@ -99,7 +101,9 @@ testSkipIfWindows(
     const iframeFrame = iframe.contentFrame();
     await expect(
       iframeFrame.getByText("Network Requests Test App"),
-    ).toBeVisible({ timeout: Timeout.MEDIUM });
+    ).toBeVisible({
+      timeout: Timeout.MEDIUM,
+    });
 
     // Wait for service worker to be ready
     // Service worker registration is async, so we wait for it to be active
@@ -235,7 +239,7 @@ testSkipIfWindows("clear filters button works", async ({ po }) => {
   await levelFilter.selectOption("error");
 
   // Check that clear button appears
-  const clearButton = po.page.getByRole("button", { name: "Clear" });
+  const clearButton = po.page.getByRole("button", { name: "Clear Filters" });
   await expect(clearButton).toBeVisible();
 
   // Click clear button
@@ -244,4 +248,53 @@ testSkipIfWindows("clear filters button works", async ({ po }) => {
   // Verify filters are reset
   const filterValue = await levelFilter.inputValue();
   expect(filterValue).toBe("all");
+});
+
+testSkipIfWindows("clear logs button clears all logs", async ({ po }) => {
+  await po.setUp();
+
+  // Create an app with console logs
+  await po.sendPrompt("tc=console-logs");
+  await po.approveProposal();
+
+  // Wait for app to run
+  const picker = po.page.getByTestId("preview-pick-element-button");
+  await expect(picker).toBeEnabled({ timeout: Timeout.EXTRA_LONG });
+
+  // Wait for iframe to load
+  const iframe = po.getPreviewIframeElement();
+  await expect(
+    iframe.contentFrame().getByText("Console Logs Test App"),
+  ).toBeVisible({
+    timeout: Timeout.MEDIUM,
+  });
+
+  // Open the system messages console
+  const consoleHeader = po.page.locator('text="System Messages"').first();
+  await consoleHeader.click();
+
+  // Wait for logs to appear
+  await expect(async () => {
+    const allLogs = po.page.getByTestId("console-entry");
+    const count = await allLogs.count();
+    expect(count).toBeGreaterThan(0);
+    await expect(allLogs.first()).toBeVisible();
+  }).toPass({ timeout: Timeout.MEDIUM });
+
+  // Verify we have multiple logs before clearing
+  const logsBeforeClear = po.page.getByTestId("console-entry");
+  const countBeforeClear = await logsBeforeClear.count();
+  expect(countBeforeClear).toBeGreaterThan(0);
+
+  // Click the Clear Logs button
+  const clearLogsButton = po.page.getByTestId("clear-logs-button");
+  await expect(clearLogsButton).toBeVisible();
+  await clearLogsButton.click();
+
+  // Verify all logs are cleared
+  await expect(async () => {
+    const logsAfterClear = po.page.getByTestId("console-entry");
+    const countAfterClear = await logsAfterClear.count();
+    expect(countAfterClear).toBe(0);
+  }).toPass({ timeout: Timeout.MEDIUM });
 });

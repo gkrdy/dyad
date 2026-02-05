@@ -192,8 +192,8 @@ export const NeonSchema = z.object({
 export type Neon = z.infer<typeof NeonSchema>;
 
 export const ExperimentsSchema = z.object({
-  enableLocalAgent: z.boolean().optional(),
   // Deprecated
+  enableLocalAgent: z.boolean().describe("DEPRECATED").optional(),
   enableSupabaseIntegration: z.boolean().describe("DEPRECATED").optional(),
   enableFileEditing: z.boolean().describe("DEPRECATED").optional(),
 });
@@ -235,6 +235,9 @@ export type ReleaseChannel = z.infer<typeof ReleaseChannelSchema>;
 export const ZoomLevelSchema = z.enum(["90", "100", "110", "125", "150"]);
 export type ZoomLevel = z.infer<typeof ZoomLevelSchema>;
 
+export const DeviceModeSchema = z.enum(["desktop", "tablet", "mobile"]);
+export type DeviceMode = z.infer<typeof DeviceModeSchema>;
+
 export const SmartContextModeSchema = z.enum([
   "balanced",
   "conservative",
@@ -242,71 +245,82 @@ export const SmartContextModeSchema = z.enum([
 ]);
 export type SmartContextMode = z.infer<typeof SmartContextModeSchema>;
 
-export const AgentToolConsentSchema = z.enum(["ask", "always"]);
+export const AgentToolConsentSchema = z.enum(["ask", "always", "never"]);
 export type AgentToolConsent = z.infer<typeof AgentToolConsentSchema>;
 
 /**
  * Zod schema for user settings
  */
-export const UserSettingsSchema = z.object({
-  selectedModel: LargeLanguageModelSchema,
-  providerSettings: z.record(z.string(), ProviderSettingSchema),
-  agentToolConsents: z.record(z.string(), AgentToolConsentSchema).optional(),
-  githubUser: GithubUserSchema.optional(),
-  githubAccessToken: SecretSchema.optional(),
-  vercelAccessToken: SecretSchema.optional(),
-  supabase: SupabaseSchema.optional(),
-  neon: NeonSchema.optional(),
-  autoApproveChanges: z.boolean().optional(),
-  telemetryConsent: z.enum(["opted_in", "opted_out", "unset"]).optional(),
-  telemetryUserId: z.string().optional(),
-  hasRunBefore: z.boolean().optional(),
-  enableDyadPro: z.boolean().optional(),
-  experiments: ExperimentsSchema.optional(),
-  lastShownReleaseNotesVersion: z.string().optional(),
-  maxChatTurnsInContext: z.number().optional(),
-  thinkingBudget: z.enum(["low", "medium", "high"]).optional(),
-  enableProLazyEditsMode: z.boolean().optional(),
-  proLazyEditsMode: z.enum(["off", "v1", "v2"]).optional(),
-  enableProSmartFilesContextMode: z.boolean().optional(),
-  enableProWebSearch: z.boolean().optional(),
-  proSmartContextOption: SmartContextModeSchema.optional(),
-  selectedTemplateId: z.string(),
-  enableSupabaseWriteSqlMigration: z.boolean().optional(),
-  selectedChatMode: ChatModeSchema.optional(),
-  acceptedCommunityCode: z.boolean().optional(),
-  zoomLevel: ZoomLevelSchema.optional(),
+export const UserSettingsSchema = z
+  .object({
+    ////////////////////////////////
+    // E2E TESTING ONLY.
+    ////////////////////////////////
+    isTestMode: z.boolean().optional(),
 
-  enableAutoFixProblems: z.boolean().optional(),
-  enableNativeGit: z.boolean().optional(),
-  enableAutoUpdate: z.boolean(),
-  releaseChannel: ReleaseChannelSchema,
-  runtimeMode2: RuntimeMode2Schema.optional(),
-  customNodePath: z.string().optional().nullable(),
-  isRunning: z.boolean().optional(),
-  lastKnownPerformance: z
-    .object({
-      timestamp: z.number(),
-      memoryUsageMB: z.number(),
-      cpuUsagePercent: z.number().optional(),
-      systemMemoryUsageMB: z.number().optional(),
-      systemMemoryTotalMB: z.number().optional(),
-      systemCpuPercent: z.number().optional(),
-    })
-    .optional(),
+    ////////////////////////////////
+    // DEPRECATED.
+    ////////////////////////////////
+    enableProSaverMode: z.boolean().optional(),
+    dyadProBudget: DyadProBudgetSchema.optional(),
+    runtimeMode: RuntimeModeSchema.optional(),
 
-  ////////////////////////////////
-  // E2E TESTING ONLY.
-  ////////////////////////////////
-  isTestMode: z.boolean().optional(),
+    ////////////////////////////////
+    // ACTIVE FIELDS.
+    ////////////////////////////////
+    selectedModel: LargeLanguageModelSchema,
+    providerSettings: z.record(z.string(), ProviderSettingSchema),
+    agentToolConsents: z.record(z.string(), AgentToolConsentSchema).optional(),
+    githubUser: GithubUserSchema.optional(),
+    githubAccessToken: SecretSchema.optional(),
+    vercelAccessToken: SecretSchema.optional(),
+    supabase: SupabaseSchema.optional(),
+    neon: NeonSchema.optional(),
+    autoApproveChanges: z.boolean().optional(),
+    telemetryConsent: z.enum(["opted_in", "opted_out", "unset"]).optional(),
+    telemetryUserId: z.string().optional(),
+    hasRunBefore: z.boolean().optional(),
+    enableDyadPro: z.boolean().optional(),
+    experiments: ExperimentsSchema.optional(),
+    lastShownReleaseNotesVersion: z.string().optional(),
+    maxChatTurnsInContext: z.number().optional(),
+    thinkingBudget: z.enum(["low", "medium", "high"]).optional(),
+    enableProLazyEditsMode: z.boolean().optional(),
+    proLazyEditsMode: z.enum(["off", "v1", "v2"]).optional(),
+    enableProSmartFilesContextMode: z.boolean().optional(),
+    enableProWebSearch: z.boolean().optional(),
+    proSmartContextOption: SmartContextModeSchema.optional(),
+    selectedTemplateId: z.string(),
+    selectedThemeId: z.string().optional(),
+    enableSupabaseWriteSqlMigration: z.boolean().optional(),
+    selectedChatMode: ChatModeSchema.optional(),
+    defaultChatMode: ChatModeSchema.optional(),
+    acceptedCommunityCode: z.boolean().optional(),
+    zoomLevel: ZoomLevelSchema.optional(),
+    previewDeviceMode: DeviceModeSchema.optional(),
 
-  ////////////////////////////////
-  // DEPRECATED.
-  ////////////////////////////////
-  enableProSaverMode: z.boolean().optional(),
-  dyadProBudget: DyadProBudgetSchema.optional(),
-  runtimeMode: RuntimeModeSchema.optional(),
-});
+    enableAutoFixProblems: z.boolean().optional(),
+    enableNativeGit: z.boolean().optional(),
+    enableAutoUpdate: z.boolean(),
+    releaseChannel: ReleaseChannelSchema,
+    runtimeMode2: RuntimeMode2Schema.optional(),
+    customNodePath: z.string().optional().nullable(),
+    isRunning: z.boolean().optional(),
+    lastKnownPerformance: z
+      .object({
+        timestamp: z.number(),
+        memoryUsageMB: z.number(),
+        cpuUsagePercent: z.number().optional(),
+        systemMemoryUsageMB: z.number().optional(),
+        systemMemoryTotalMB: z.number().optional(),
+        systemCpuPercent: z.number().optional(),
+      })
+      .optional(),
+    hideLocalAgentNewChatToast: z.boolean().optional(),
+  })
+  // Allow unknown properties to pass through (e.g. future settings
+  // that should be preserved if user downgrades to an older version)
+  .passthrough();
 
 /**
  * Type derived from the UserSettingsSchema
@@ -321,22 +335,43 @@ export function hasDyadProKey(settings: UserSettings): boolean {
   return !!settings.providerSettings?.auto?.apiKey?.value;
 }
 
+/**
+ * Gets the effective default chat mode based on settings and pro status.
+ * - If defaultChatMode is set and valid for the user's Pro status, use it
+ * - If defaultChatMode is "local-agent" but user doesn't have Pro, fall back to "build"
+ * - If defaultChatMode is NOT set but user has Dyad Pro enabled, treat as "local-agent"
+ * - If not pro, treat as "build"
+ */
+export function getEffectiveDefaultChatMode(settings: UserSettings): ChatMode {
+  if (settings.defaultChatMode) {
+    // "local-agent" requires Pro - fall back to "build" if user lost Pro access
+    if (
+      settings.defaultChatMode === "local-agent" &&
+      !isDyadProEnabled(settings)
+    ) {
+      return "build";
+    }
+    return settings.defaultChatMode;
+  }
+  return isDyadProEnabled(settings) ? "local-agent" : "build";
+}
+
 export function isSupabaseConnected(settings: UserSettings | null): boolean {
   if (!settings) {
     return false;
   }
   return Boolean(
     settings.supabase?.accessToken ||
-      (settings.supabase?.organizations &&
-        Object.keys(settings.supabase.organizations).length > 0),
+    (settings.supabase?.organizations &&
+      Object.keys(settings.supabase.organizations).length > 0),
   );
 }
 
 export function isTurboEditsV2Enabled(settings: UserSettings): boolean {
   return Boolean(
     isDyadProEnabled(settings) &&
-      settings.enableProLazyEditsMode === true &&
-      settings.proLazyEditsMode === "v2",
+    settings.enableProLazyEditsMode === true &&
+    settings.proLazyEditsMode === "v2",
   );
 }
 
